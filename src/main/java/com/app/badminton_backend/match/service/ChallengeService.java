@@ -73,10 +73,13 @@ public class ChallengeService {
         }
 
         User invitedUser = userRepository.findByPhoneNumber(phoneNumber);
-        System.out.println("user->"+invitedUser.getId());
         if (invitedUser == null) {
             throw new IllegalArgumentException(
                     "No user found with mobile: " + phoneNumber);
+        }
+
+        if (invitedUser.getId().equals(cuurId)) {
+            throw new DuplicateException("Self invite is not applicable");
         }
 
         MatchInvite existingInvite = matchInviteRepository.findByMatchId(matchId)
@@ -84,9 +87,7 @@ public class ChallengeService {
                 .filter(i -> i.getUserId().equals(invitedUser.getId()))
                 .findFirst()
                 .orElse(null);
-        if(existingInvite.getUserId()==cuurId){
-            throw new DuplicateException("Self invite is not applicable");
-        }
+
         if (existingInvite != null) {
 
             if (existingInvite.getStatus() == InviteStatus.INVITED) {

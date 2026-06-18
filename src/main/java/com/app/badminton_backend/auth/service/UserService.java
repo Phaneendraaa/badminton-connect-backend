@@ -20,21 +20,18 @@ public class UserService {
 
     private final UserRepository userRepository;
     public UserSearchDtoResponse searchUser(String phoneNumber){
-        System.out.println("recieved to search "+phoneNumber);
-        UUID userId =  userRepository.findByPhoneNumber(phoneNumber).getId();
-        System.out.println("found user->"+userId);
-        if(userId==null){
-            throw new EntityNotFoundException("User with this Mobile Number doesnt exist");
+        User user = userRepository.findByPhoneNumber(phoneNumber);
+        if (user == null) {
+            throw new EntityNotFoundException("User with this Mobile Number doesn't exist");
         }
+        UUID userId = user.getId();
         Profile profile = profileService.findByUserId(userId);
-        System.out.println("found profile->"+profile);
         UserSearchDtoResponse userSearchDtoResponse = UserSearchDtoResponse.builder()
                 .userId(userId)
                 .name(profile.getFirstName()+" "+profile.getLastName())
                 .phoneNumber(phoneNumber)
                 .profilePictureUrl(profile.getProfilePictureUrl())
                 .build();
-        System.out.println(userSearchDtoResponse);
         return userSearchDtoResponse;
     }
 }

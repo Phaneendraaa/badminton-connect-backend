@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -32,9 +34,16 @@ public class ChallengeFriendController {
                 .body(new CreateRoomDtoResponse(match.getId()));
     }
     @PostMapping("/invite")
-    public ResponseEntity<?> createChallengeRoom(@Valid @RequestBody ChallengeInviteDtoRequest challengeInviteDtoRequest){
-        MatchInvite matchInvite =  challengeService.inviteByPhone(UUID.fromString(challengeInviteDtoRequest.getMatchId()),challengeInviteDtoRequest.getPhoneNumber());
-        System.out.println("Invited ->"+matchInvite);
-        return (ResponseEntity<?>) ResponseEntity.ok();
+    public ResponseEntity<?> inviteToChallenge(@Valid @RequestBody ChallengeInviteDtoRequest challengeInviteDtoRequest){
+        MatchInvite matchInvite = challengeService.inviteByPhone(
+                UUID.fromString(challengeInviteDtoRequest.getMatchId()),
+                challengeInviteDtoRequest.getPhoneNumber());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Invite sent successfully");
+        response.put("inviteId", matchInvite.getId());
+        response.put("status", matchInvite.getStatus());
+
+        return ResponseEntity.ok(response);
     }
 }

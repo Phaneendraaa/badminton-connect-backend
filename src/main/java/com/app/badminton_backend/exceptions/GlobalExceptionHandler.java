@@ -17,19 +17,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateException.class)
     public ResponseEntity<?> handleDuplicateException(DuplicateException ex){
-        Map<String,Object> response = new HashMap<>();
-
-        response.put("message",ex.getMessage());
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
+
     @ExceptionHandler(InvalidOtpException.class)
     public ResponseEntity<?> handleOtpException(InvalidOtpException ex){
-        Map<String,Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("message",ex.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+        return buildResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<?> handleValidationException(MethodArgumentNotValidException ex){
         Map<String, String> errors = new HashMap<>();
@@ -39,14 +34,40 @@ public class GlobalExceptionHandler {
                 .forEach(error ->
                         errors.put(error.getField(), error.getDefaultMessage()));
 
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
     }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<?> handleEntityNotFoundException(EntityNotFoundException ex){
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    // Thrown for things like "Room is already full", "Invite already pending", etc.
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<?> handleIllegalStateException(IllegalStateException ex){
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    // Thrown for things like "No user found with mobile: ..."
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<?> handleIllegalArgumentException(IllegalArgumentException ex){
+        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    // Catch-all so the client ALWAYS gets a parsable JSON body instead of an
+    // empty 500 response (which is what causes "Unexpected end of input" on the frontend).
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> handleGenericException(Exception ex){
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Something went wrong. Please try again.");
+    }
+
+    private ResponseEntity<?> buildResponse(HttpStatus status, String message){
         Map<String,Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());
-        response.put("message",ex.getMessage());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        response.put("status", status.value());
+        response.put("message", message);
+        return ResponseEntity.status(status).body(response);
     }
 
 }

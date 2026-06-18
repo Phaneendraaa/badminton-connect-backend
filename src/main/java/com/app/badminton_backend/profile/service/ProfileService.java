@@ -26,8 +26,8 @@ public class ProfileService {
     private final EloPointsRepository eloPointsRepository;
 
     public Profile findByUserId(UUID userId){
-        Profile profile = profileRepository.findById(userId).orElseThrow();
-        return profile;
+        return profileRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("Profile not found for this user"));
     }
 
     public void createProfile(ProfileCreateDto profileCreateDto){
