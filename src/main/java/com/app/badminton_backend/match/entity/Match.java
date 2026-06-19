@@ -32,6 +32,11 @@ public class Match {
     @Column(nullable = false)
     private MatchOrigin origin; // POST (anonymous/open) or CHALLENGE (friend direct)
 
+    @Column(nullable = false)
+    private String matchName;
+
+    private LocalDateTime scheduledAt;
+
     @Enumerated(EnumType.STRING)
     @Builder.Default
     private MatchStatus status = MatchStatus.PENDING; //

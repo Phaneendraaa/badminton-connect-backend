@@ -30,4 +30,8 @@ public class MatchSet {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Team setWinner; // TEAM_A or TEAM_B for this specific set
+
+    public void setWinner(Team winner) {
+        setWinner=winner;
+    }
 }
