@@ -77,14 +77,16 @@ public class MatchPostService {
                 .organizerId(creatorId)
                 .slotsTotal(slotsTotal)
                 .slotsJoined(1) // organizer auto-counts
-                .matchName(request.getLocation()) // sensible display name fallback
+                .matchName(request.getTitle()) // Set matchName to the provided title
                 .scheduledAt(scheduledAt)
                 .build());
 
         MatchPost post = matchPostRepository.save(MatchPost.builder()
                 .creatorId(creatorId)
+                .title(request.getTitle())
                 .matchType(request.getMatchType())
                 .location(request.getLocation())
+                .description(request.getDescription())
                 .scheduledAt(scheduledAt)
                 .eloMin(request.getEloMin())
                 .eloMax(request.getEloMax())
@@ -154,8 +156,10 @@ public class MatchPostService {
             return PostFeedItemDtoResponse.builder()
                     .postId(post.getId())
                     .matchId(post.getMatchId())
+                    .title(post.getTitle())
                     .matchType(post.getMatchType())
                     .location(post.getLocation())
+                    .description(post.getDescription())
                     .scheduledAt(post.getScheduledAt())
                     .eloMin(post.getEloMin())
                     .eloMax(post.getEloMax())
@@ -207,8 +211,10 @@ public class MatchPostService {
         return PostDetailDtoResponse.builder()
                 .postId(post.getId())
                 .matchId(post.getMatchId())
+                .title(post.getTitle())
                 .matchType(post.getMatchType())
                 .location(post.getLocation())
+                .description(post.getDescription())
                 .scheduledAt(post.getScheduledAt())
                 .eloMin(post.getEloMin())
                 .eloMax(post.getEloMax())

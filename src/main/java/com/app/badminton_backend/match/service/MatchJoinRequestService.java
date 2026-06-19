@@ -58,6 +58,10 @@ public class MatchJoinRequestService {
                 .orElseThrow(() -> new PostNotFoundException("Post not found: " + postId));
 
         // Self-join check — use .equals(), never ==
+        if (post.getCreatorId() == null || !profileRepository.existsById(post.getCreatorId())) {
+            throw new IllegalStateException("Invalid organizer link: The creator of this post could not be found.");
+        }
+
         if (post.getCreatorId().equals(userId)) {
             throw new IllegalArgumentException("You cannot request to join your own post");
         }

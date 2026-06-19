@@ -12,11 +12,18 @@ import lombok.Data;
 @Data
 public class CreatePostDtoRequest {
 
+    @NotBlank(message = "Match title is required")
+    @Size(max = 100, message = "Match title cannot exceed 100 characters")
+    private String title;
+
     @NotNull(message = "Match type is required")
     private MatchType matchType;
 
-    @NotBlank(message = "Location is required")
+    @Pattern(regexp = "^(http://|https://).*$", message = "Location must be a valid URL starting with http:// or https://")
     private String location;
+
+    @Size(max = 500, message = "Description cannot exceed 500 characters")
+    private String description;
 
     /**
      * ISO-8601 datetime string, e.g. "2026-07-01T15:00:00".

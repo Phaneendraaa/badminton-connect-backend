@@ -33,13 +33,19 @@ public class MatchPost {
     @Column(nullable = false)
     private UUID creatorId;
 
+    @Column(nullable = false, length = 100)
+    private String title;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private MatchType matchType;
 
     /** Plain-text location in v1. Sized to accommodate future lat/lng JSON. */
-    @Column(nullable = false, length = 500)
+    @Column(length = 500)
     private String location;
+
+    @Column(length = 500)
+    private String description;
 
     @Column(nullable = false)
     private LocalDateTime scheduledAt;

@@ -19,8 +19,10 @@ public class PostDetailDtoResponse {
 
     private UUID postId;
     private UUID matchId;
+    private String title;
     private MatchType matchType;
     private String location;
+    private String description;
     private LocalDateTime scheduledAt;
     private Integer eloMin;
     private Integer eloMax;
