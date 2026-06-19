@@ -82,7 +82,6 @@ public class ChallengeService {
         UUID cuurId = currentUserService.getCurrentUser().getId();
         Match match = matchRepository.findById(matchId)
                 .orElseThrow(() -> new IllegalStateException("Match not found"));
-        System.out.println("match found");
         if (match.getSlotsJoined() >= match.getSlotsTotal()) {
             throw new IllegalStateException("Room is already full");
         }

@@ -62,6 +62,30 @@ public class GlobalExceptionHandler {
                 "Something went wrong. Please try again.");
     }
 
+    // ---- Open Match Posts / Join Request exceptions ----
+
+    @ExceptionHandler(PostNotFoundException.class)
+    public ResponseEntity<?> handlePostNotFoundException(PostNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(PostNotOpenException.class)
+    public ResponseEntity<?> handlePostNotOpenException(PostNotOpenException ex) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    /** 403 — attempting an organizer-only action on a resource you don't own. */
+    @ExceptionHandler(UnauthorizedActionException.class)
+    public ResponseEntity<?> handleUnauthorizedActionException(UnauthorizedActionException ex) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    /** 409 — all slots filled; also covers the concurrent-accept race condition. */
+    @ExceptionHandler(MatchFullException.class)
+    public ResponseEntity<?> handleMatchFullException(MatchFullException ex) {
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
     private ResponseEntity<?> buildResponse(HttpStatus status, String message){
         Map<String,Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());

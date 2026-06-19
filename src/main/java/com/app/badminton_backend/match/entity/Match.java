@@ -59,4 +59,13 @@ public class Match {
 
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    /**
+     * Optimistic-lock version. JPA auto-increments this on every UPDATE.
+     * The accept-request path uses a PESSIMISTIC_WRITE lock instead for
+     * slot contention, but this field guards any other concurrent writes
+     * (e.g. two simultaneous updateMatch calls).
+     */
+    @Version
+    private Integer version;
 }
