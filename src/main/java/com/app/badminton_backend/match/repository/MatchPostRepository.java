@@ -18,6 +18,9 @@ public interface MatchPostRepository extends JpaRepository<MatchPost, UUID> {
 
     List<MatchPost> findByStatus(PostStatus status);
 
+    /** All posts created by this user, newest first. Used by GET /match-post/mine. */
+    List<MatchPost> findByCreatorIdOrderByCreatedAtDesc(UUID creatorId);
+
     /**
      * Paginated feed query.
      *
@@ -30,6 +33,7 @@ public interface MatchPostRepository extends JpaRepository<MatchPost, UUID> {
      *     with the user's ELO (userElo >= post.eloMin AND userElo <= post.eloMax).
      *  6. Optional date-range filter on scheduledAt.
      *  7. Optional free-text location substring match.
+     *  8. Optional city exact-match filter (curated city name or "Other").
      *
      * Exclusion of posts the user already has an ACCEPTED request for is
      * handled in MatchPostService by filtering the returned page client-side
@@ -39,12 +43,13 @@ public interface MatchPostRepository extends JpaRepository<MatchPost, UUID> {
             SELECT p FROM MatchPost p
             WHERE p.creatorId <> :requesterId
               AND p.status = 'OPEN'
-              AND p.scheduledAt > :now
+              AND p.expiresAt > :now
               AND (:matchType IS NULL OR p.matchType = :matchType)
               AND (:userElo IS NULL OR (p.eloMin <= :userElo AND p.eloMax >= :userElo))
               AND (:dateFrom IS NULL OR p.scheduledAt >= :dateFrom)
               AND (:dateTo IS NULL OR p.scheduledAt <= :dateTo)
               AND (:location IS NULL OR LOWER(p.location) LIKE LOWER(CONCAT('%', :location, '%')))
+              AND (:city IS NULL OR p.city = :city)
             ORDER BY p.scheduledAt ASC
             """)
     Page<MatchPost> findFeed(
@@ -55,8 +60,23 @@ public interface MatchPostRepository extends JpaRepository<MatchPost, UUID> {
             @Param("dateFrom") LocalDateTime dateFrom,
             @Param("dateTo") LocalDateTime dateTo,
             @Param("location") String location,
+            @Param("city") String city,
             Pageable pageable
     );
+
+    /**
+     * Count of PENDING join requests per post — used by getMyPosts().
+     * Returns a list of Object[] where [0]=postId (UUID) and [1]=count (Long).
+     * Aggregated server-side to avoid N+1 queries in the organizer feed.
+     */
+    @Query("""
+            SELECT r.postId, COUNT(r)
+            FROM MatchJoinRequest r
+            WHERE r.postId IN :postIds
+              AND r.status = 'PENDING'
+            GROUP BY r.postId
+            """)
+    List<Object[]> countPendingRequestsForPosts(@Param("postIds") List<UUID> postIds);
 
     /** Used by the expiry scheduler to batch-expire posts whose window has passed. */
     @Query("SELECT p FROM MatchPost p WHERE p.status = 'OPEN' AND p.expiresAt <= :now")

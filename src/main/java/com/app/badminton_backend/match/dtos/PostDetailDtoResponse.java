@@ -21,6 +21,8 @@ public class PostDetailDtoResponse {
     private UUID matchId;
     private String title;
     private MatchType matchType;
+    private String city;
+    private String cityOther;
     private String location;
     private String description;
     private LocalDateTime scheduledAt;

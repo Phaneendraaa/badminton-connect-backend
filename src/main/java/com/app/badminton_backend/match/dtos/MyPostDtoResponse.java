@@ -6,16 +6,16 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
 /**
- * Lightweight item shape for the paginated MatchFeed.
- * Heavier detail (roster, pending requests) lives in PostDetailDtoResponse.
+ * Response shape for GET /match-post/mine — the organizer's own posts.
+ * Includes pendingRequestCount so the UI can show an unread badge
+ * without a separate join-request fetch per post.
  */
 @Data
 @Builder
-public class PostFeedItemDtoResponse {
+public class MyPostDtoResponse {
 
     private UUID postId;
     private UUID matchId;
@@ -24,18 +24,18 @@ public class PostFeedItemDtoResponse {
     private String city;
     private String cityOther;
     private String location;
-    private String description;
     private LocalDateTime scheduledAt;
     private Integer eloMin;
     private Integer eloMax;
     private Integer slotsTotal;
-    private Integer slotsJoined;  // current number of filled slots (from companion Match)
+    private Integer slotsJoined;
     private PostStatus status;
     private LocalDateTime createdAt;
 
-    // Organizer snapshot (enough for the feed card)
-    private UUID organizerId;
-    private String organizerName;
-    private String organizerAvatarUrl;
-    private Integer organizerElo;
+    /**
+     * Number of PENDING join requests currently awaiting organizer review.
+     * Computed server-side so the frontend gets a ready-to-display number
+     * without any extra round-trips.
+     */
+    private Integer pendingRequestCount;
 }

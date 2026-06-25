@@ -40,4 +40,37 @@ public class ProfileService {
                     .build();
             EloPoints savedElo = eloPointsRepository.save(eloPoints);
     }
+
+    public com.app.badminton_backend.profile.dtos.ProfileDtoResponse getMyProfile() {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        Profile profile = findByUserId(userId);
+        return modelMapper.map(profile, com.app.badminton_backend.profile.dtos.ProfileDtoResponse.class);
+    }
+
+    public com.app.badminton_backend.profile.dtos.ProfileDtoResponse updateMyProfile(com.app.badminton_backend.profile.dtos.ProfileUpdateDto updateDto) {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        Profile profile = findByUserId(userId);
+        
+        if (updateDto.getFirstName() != null) profile.setFirstName(updateDto.getFirstName());
+        if (updateDto.getLastName() != null) profile.setLastName(updateDto.getLastName());
+        if (updateDto.getProfilePictureUrl() != null) profile.setProfilePictureUrl(updateDto.getProfilePictureUrl());
+        if (updateDto.getHomeCity() != null) profile.setHomeCity(updateDto.getHomeCity());
+        
+        Profile savedProfile = profileRepository.save(profile);
+        return modelMapper.map(savedProfile, com.app.badminton_backend.profile.dtos.ProfileDtoResponse.class);
+    }
+
+    public com.app.badminton_backend.profile.dtos.ProfileDtoResponse getProfileById(UUID userId) {
+        Profile profile = findByUserId(userId);
+        return modelMapper.map(profile, com.app.badminton_backend.profile.dtos.ProfileDtoResponse.class);
+    }
+
+    public com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse getStats() {
+        // Stub implementation as requested
+        return com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse.builder()
+                .matchesPlayed(0)
+                .winRate(0.0)
+                .trustScore(100)
+                .build();
+    }
 }

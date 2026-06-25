@@ -5,6 +5,7 @@ import com.app.badminton_backend.elo.service.EloService;
 import com.app.badminton_backend.exceptions.PostNotFoundException;
 import com.app.badminton_backend.exceptions.UnauthorizedActionException;
 import com.app.badminton_backend.match.dtos.CreatePostDtoRequest;
+import com.app.badminton_backend.match.dtos.MyPostDtoResponse;
 import com.app.badminton_backend.match.dtos.PostDetailDtoResponse;
 import com.app.badminton_backend.match.dtos.PostFeedItemDtoResponse;
 import com.app.badminton_backend.match.entity.Match;
@@ -17,6 +18,7 @@ import com.app.badminton_backend.match.repository.MatchPostRepository;
 import com.app.badminton_backend.match.repository.MatchRepository;
 import com.app.badminton_backend.profile.entity.Profile;
 import com.app.badminton_backend.profile.repository.ProfileRepository;
+import com.app.badminton_backend.reference.ReferenceController;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,8 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,12 +50,10 @@ public class MatchPostService {
     /**
      * Creates a public open-match post and its companion Match row atomically.
      *
-     * Mirror of ChallengeService.createChallengeRoom() but for the OPEN origin:
-     *  - slotsTotal derived from matchType (2 for SINGLES, 4 for DOUBLES).
-     *  - Match.origin = OPEN; Match.postId = the new post's id.
-     *  - Organizer is auto-counted as slotsJoined=1 but NOT added as MatchPlayer
-     *    yet (teams are assigned later via the existing assignTeams endpoint).
-     *  - expiresAt defaults to scheduledAt + 2 hours.
+     * City validation rules (enforced here because they are cross-field):
+     *  1. city must be a known value from ReferenceController.CITIES or "Other".
+     *  2. If city == "Other", cityOther must be non-blank.
+     *  3. If city != "Other", cityOther must be null.
      */
     @Transactional
     public MatchPost createPost(CreatePostDtoRequest request) {
@@ -67,6 +70,9 @@ public class MatchPostService {
             throw new IllegalArgumentException("ELO minimum must not exceed ELO maximum");
         }
 
+        // City cross-field validation
+        validateCity(request.getCity(), request.getCityOther());
+
         int slotsTotal = request.getMatchType() == MatchType.SINGLES ? 2 : 4;
 
         // Create the companion Match first so we have its ID for the post.
@@ -77,7 +83,7 @@ public class MatchPostService {
                 .organizerId(creatorId)
                 .slotsTotal(slotsTotal)
                 .slotsJoined(1) // organizer auto-counts
-                .matchName(request.getTitle()) // Set matchName to the provided title
+                .matchName(request.getTitle())
                 .scheduledAt(scheduledAt)
                 .build());
 
@@ -85,6 +91,8 @@ public class MatchPostService {
                 .creatorId(creatorId)
                 .title(request.getTitle())
                 .matchType(request.getMatchType())
+                .city(request.getCity())
+                .cityOther("Other".equals(request.getCity()) ? request.getCityOther() : null)
                 .location(request.getLocation())
                 .description(request.getDescription())
                 .scheduledAt(scheduledAt)
@@ -96,11 +104,45 @@ public class MatchPostService {
                 .expiresAt(scheduledAt.plusHours(2))
                 .build());
 
+        // Save the organizer as the first player in the roster (Team A)
+        matchPlayerRepository.save(MatchPlayer.builder()
+                .matchId(match.getId())
+                .userId(creatorId)
+                .team(Team.TEAM_A)
+                .eloBefore(eloService.getOrCreate(creatorId).getElo())
+                .build());
+
         // Back-fill postId on the Match row now that the post has an ID.
         match.setPostId(post.getId());
         matchRepository.save(match);
 
         return post;
+    }
+
+    /**
+     * Validates the city/cityOther invariant.
+     *
+     * Enforces both directions:
+     *  - city must be in the curated list or "Other".
+     *  - If city == "Other", cityOther must be non-blank.
+     *  - If city != "Other", cityOther must be null/blank (reject junk data).
+     */
+    private void validateCity(String city, String cityOther) {
+        if (!ReferenceController.isValidCity(city)) {
+            throw new IllegalArgumentException(
+                    "Invalid city value: '" + city + "'. Use one of the values from GET /reference/cities.");
+        }
+        if ("Other".equals(city)) {
+            if (cityOther == null || cityOther.isBlank()) {
+                throw new IllegalArgumentException(
+                        "cityOther is required when city is 'Other'");
+            }
+        } else {
+            if (cityOther != null && !cityOther.isBlank()) {
+                throw new IllegalArgumentException(
+                        "cityOther must be empty when city is not 'Other'");
+            }
+        }
     }
 
     /**
@@ -110,7 +152,7 @@ public class MatchPostService {
      *  1. User's own posts.
      *  2. Non-OPEN posts (FULL/CANCELLED/EXPIRED are all excluded).
      *  3. Posts where scheduledAt has passed.
-     *  4. matchType/elo/date/location filters (optional params — null = no filter).
+     *  4. matchType/elo/date/location/city filters (optional params — null = no filter).
      */
     public Page<PostFeedItemDtoResponse> getFeed(
             String matchType,
@@ -119,6 +161,7 @@ public class MatchPostService {
             String dateFrom,
             String dateTo,
             String location,
+            String city,
             int page,
             int size) {
 
@@ -132,6 +175,7 @@ public class MatchPostService {
         LocalDateTime dateToParam = (dateTo != null && !dateTo.isBlank())
                 ? LocalDateTime.parse(dateTo, DateTimeFormatter.ISO_DATE_TIME) : null;
         String locationParam = (location != null && !location.isBlank()) ? location : null;
+        String cityParam = (city != null && !city.isBlank()) ? city : null;
 
         // Use caller's ELO as the elo filter (hard gate: post range must include user's elo)
         Integer eloFilter = userElo;
@@ -144,6 +188,7 @@ public class MatchPostService {
                 dateFromParam,
                 dateToParam,
                 locationParam,
+                cityParam,
                 PageRequest.of(page, size));
 
         return posts.map(post -> {
@@ -158,6 +203,8 @@ public class MatchPostService {
                     .matchId(post.getMatchId())
                     .title(post.getTitle())
                     .matchType(post.getMatchType())
+                    .city(post.getCity())
+                    .cityOther(post.getCityOther())
                     .location(post.getLocation())
                     .description(post.getDescription())
                     .scheduledAt(post.getScheduledAt())
@@ -174,6 +221,58 @@ public class MatchPostService {
                     .organizerElo(organizerElo)
                     .build();
         });
+    }
+
+    /**
+     * Returns all posts created by the current user (organizer view),
+     * enriched with pending request count for the My Posts tab badge.
+     *
+     * Includes all statuses (OPEN, FULL, CANCELLED, EXPIRED) so organizers
+     * can see their full history, not just active posts.
+     */
+    public List<MyPostDtoResponse> getMyPosts() {
+        UUID creatorId = currentUserService.getCurrentUser().getId();
+        List<MatchPost> posts = matchPostRepository.findByCreatorIdOrderByCreatedAtDesc(creatorId);
+
+        if (posts.isEmpty()) {
+            return List.of();
+        }
+
+        // Fetch pending request counts in a single aggregate query (avoids N+1).
+        List<UUID> postIds = posts.stream().map(MatchPost::getId).collect(Collectors.toList());
+        List<Object[]> rawCounts = matchPostRepository.countPendingRequestsForPosts(postIds);
+
+        Map<UUID, Integer> pendingCounts = new HashMap<>();
+        for (Object[] row : rawCounts) {
+            UUID postId = (UUID) row[0];
+            Long count = (Long) row[1];
+            pendingCounts.put(postId, count.intValue());
+        }
+
+        List<MyPostDtoResponse> result = new ArrayList<>();
+        for (MatchPost post : posts) {
+            Match match = matchRepository.findById(post.getMatchId()).orElse(null);
+            int slotsJoined = match != null ? match.getSlotsJoined() : 1;
+
+            result.add(MyPostDtoResponse.builder()
+                    .postId(post.getId())
+                    .matchId(post.getMatchId())
+                    .title(post.getTitle())
+                    .matchType(post.getMatchType())
+                    .city(post.getCity())
+                    .cityOther(post.getCityOther())
+                    .location(post.getLocation())
+                    .scheduledAt(post.getScheduledAt())
+                    .eloMin(post.getEloMin())
+                    .eloMax(post.getEloMax())
+                    .slotsTotal(post.getSlotsTotal())
+                    .slotsJoined(slotsJoined)
+                    .status(post.getStatus())
+                    .createdAt(post.getCreatedAt())
+                    .pendingRequestCount(pendingCounts.getOrDefault(post.getId(), 0))
+                    .build());
+        }
+        return result;
     }
 
     /**
@@ -213,6 +312,8 @@ public class MatchPostService {
                 .matchId(post.getMatchId())
                 .title(post.getTitle())
                 .matchType(post.getMatchType())
+                .city(post.getCity())
+                .cityOther(post.getCityOther())
                 .location(post.getLocation())
                 .description(post.getDescription())
                 .scheduledAt(post.getScheduledAt())

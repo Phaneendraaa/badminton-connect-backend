@@ -29,4 +29,13 @@ public class Profile {
 
     @Column(nullable = false)
     private GenderEnum genderEnum;
+
+    /**
+     * The user's preferred home city for match discovery.
+     * Used to default the city filter on the Home feed so users don't have to
+     * re-select it every session. Editable from the Profile screen.
+     * Nullable — not required during initial profile creation.
+     */
+    @Column(length = 100)
+    private String homeCity;
 }

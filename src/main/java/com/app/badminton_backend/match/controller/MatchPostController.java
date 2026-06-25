@@ -1,6 +1,7 @@
 package com.app.badminton_backend.match.controller;
 
 import com.app.badminton_backend.match.dtos.CreatePostDtoRequest;
+import com.app.badminton_backend.match.dtos.MyPostDtoResponse;
 import com.app.badminton_backend.match.dtos.PostDetailDtoResponse;
 import com.app.badminton_backend.match.dtos.PostFeedItemDtoResponse;
 import com.app.badminton_backend.match.entity.MatchPost;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -45,7 +47,8 @@ public class MatchPostController {
      *   eloMax     — same as above
      *   dateFrom   — ISO-8601 lower bound on scheduledAt
      *   dateTo     — ISO-8601 upper bound on scheduledAt
-     *   location   — free-text substring match
+     *   location   — free-text substring match on the Maps URL/text
+     *   city       — exact match on the curated city field (e.g. "Hyderabad")
      *   page       — 0-indexed (default 0)
      *   size       — page size (default 20)
      */
@@ -57,11 +60,12 @@ public class MatchPostController {
             @RequestParam(required = false) String dateFrom,
             @RequestParam(required = false) String dateTo,
             @RequestParam(required = false) String location,
+            @RequestParam(required = false) String city,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         Page<PostFeedItemDtoResponse> feed = matchPostService.getFeed(
-                matchType, eloMin, eloMax, dateFrom, dateTo, location, page, size);
+                matchType, eloMin, eloMax, dateFrom, dateTo, location, city, page, size);
         return ResponseEntity.ok(feed);
     }
 
@@ -81,5 +85,17 @@ public class MatchPostController {
     public ResponseEntity<?> cancelPost(@PathVariable UUID id) {
         matchPostService.cancelPost(id);
         return ResponseEntity.ok(Map.of("message", "Post cancelled successfully"));
+    }
+
+    /**
+     * Returns all posts created by the current authenticated user (organizer view).
+     * Includes all statuses (OPEN, FULL, CANCELLED, EXPIRED) and a pendingRequestCount
+     * per post for the My Posts tab badge.
+     *
+     * Used by the Activity → My Posts tab.
+     */
+    @GetMapping("/mine")
+    public ResponseEntity<List<MyPostDtoResponse>> getMyPosts() {
+        return ResponseEntity.ok(matchPostService.getMyPosts());
     }
 }

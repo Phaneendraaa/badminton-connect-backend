@@ -44,6 +44,21 @@ public class MatchPost {
     @Column(length = 500)
     private String location;
 
+    /**
+     * Curated city name for filtering/discovery (e.g. "Hyderabad", "Mumbai").
+     * Must match one of the values returned by GET /reference/cities, OR be "Other".
+     * Required on every post — never null after creation.
+     */
+    @Column(nullable = false, length = 100)
+    private String city;
+
+    /**
+     * Free-text city name provided when city == "Other".
+     * Must be non-null/non-blank when city == "Other"; must be null otherwise.
+     */
+    @Column(length = 200)
+    private String cityOther;
+
     @Column(length = 500)
     private String description;
 

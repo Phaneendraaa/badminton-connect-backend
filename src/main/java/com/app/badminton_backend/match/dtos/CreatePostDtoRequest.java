@@ -8,6 +8,11 @@ import lombok.Data;
  * Request body for POST /match-post/create.
  * scheduledAt is sent as an ISO-8601 string so the frontend doesn't need
  * to serialise a Java type — same convention as CreateRoomDtoRequest.
+ *
+ * City validation rules (cross-field, enforced in MatchPostService):
+ *   - city must be non-blank.
+ *   - If city == "Other", cityOther must also be non-blank (free text).
+ *   - If city != "Other", cityOther must be null (reject unfilterable junk data).
  */
 @Data
 public class CreatePostDtoRequest {
@@ -18,6 +23,21 @@ public class CreatePostDtoRequest {
 
     @NotNull(message = "Match type is required")
     private MatchType matchType;
+
+    /**
+     * Curated city name from GET /reference/cities, or "Other".
+     * Validated in service against the reference list.
+     */
+    @NotBlank(message = "City is required")
+    @Size(max = 100, message = "City name cannot exceed 100 characters")
+    private String city;
+
+    /**
+     * Free-text city description — required if and only if city == "Other".
+     * Must be null when city is any curated value other than "Other".
+     */
+    @Size(max = 200, message = "City description cannot exceed 200 characters")
+    private String cityOther;
 
     @Pattern(regexp = "^(http://|https://).*$", message = "Location must be a valid URL starting with http:// or https://")
     private String location;
