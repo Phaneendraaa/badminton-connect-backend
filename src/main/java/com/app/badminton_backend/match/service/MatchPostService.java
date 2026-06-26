@@ -16,6 +16,7 @@ import com.app.badminton_backend.match.repository.MatchJoinRequestRepository;
 import com.app.badminton_backend.match.repository.MatchPlayerRepository;
 import com.app.badminton_backend.match.repository.MatchPostRepository;
 import com.app.badminton_backend.match.repository.MatchRepository;
+import com.app.badminton_backend.match.repository.NotificationRepository;
 import com.app.badminton_backend.profile.entity.Profile;
 import com.app.badminton_backend.profile.repository.ProfileRepository;
 import com.app.badminton_backend.reference.ReferenceController;
@@ -46,6 +47,8 @@ public class MatchPostService {
     private final MatchJoinRequestRepository matchJoinRequestRepository;
     private final EloService eloService;
     private final ProfileRepository profileRepository;
+    private final NotificationService notificationService;
+    private final NotificationRepository notificationRepository;
 
     /**
      * Creates a public open-match post and its companion Match row atomically.
@@ -367,8 +370,19 @@ public class MatchPostService {
         // Auto-reject all pending requests for this post
         matchJoinRequestRepository.rejectAllPendingForPost(postId);
 
-        // In-app notification stub: log that accepted joiners need notifying.
-        // Real push notifications are deferred to a future pass.
+        // Notify all confirmed MatchPlayers that the match is cancelled
+        Match match = matchRepository.findById(post.getMatchId()).orElse(null);
+        if (match != null) {
+            List<MatchPlayer> players = matchPlayerRepository.findByMatchId(match.getId());
+            for (MatchPlayer mp : players) {
+                notificationService.create(
+                        mp.getUserId(),
+                        NotificationType.POST_CANCELLED,
+                        postId,
+                        match.getId(),
+                        "The match \"" + match.getMatchName() + "\" has been cancelled by the organizer.");
+            }
+        }
     }
 
     /**
@@ -384,6 +398,49 @@ public class MatchPostService {
             matchPostRepository.save(post);
             // Auto-reject any lingering pending requests on expired posts
             matchJoinRequestRepository.rejectAllPendingForPost(post.getId());
+        }
+    }
+
+    /**
+     * Scheduled job: fire MATCH_STARTING_SOON notifications for matches whose
+     * scheduledAt falls within the next 55–65 minutes.
+     *
+     * Runs every 5 minutes. Guards against double-firing by checking whether a
+     * MATCH_STARTING_SOON notification for that matchId + userId already exists
+     * before creating a new one.
+     */
+    @Scheduled(fixedRate = 300_000) // every 5 minutes
+    @Transactional
+    public void fireStartingSoonNotifications() {
+        LocalDateTime windowStart = LocalDateTime.now().plusMinutes(55);
+        LocalDateTime windowEnd   = LocalDateTime.now().plusMinutes(65);
+
+        // Find all non-completed matches whose scheduledAt is in the [+55min, +65min] window
+        List<Match> upcoming = matchRepository.findAll().stream()
+                .filter(m -> m.getScheduledAt() != null
+                        && !m.getScheduledAt().isBefore(windowStart)
+                        && !m.getScheduledAt().isAfter(windowEnd)
+                        && m.getStatus() != MatchStatus.COMPLETED
+                        && m.getStatus() != MatchStatus.CANCELLED)
+                .collect(Collectors.toList());
+
+        for (Match match : upcoming) {
+            List<MatchPlayer> players = matchPlayerRepository.findByMatchId(match.getId());
+            for (MatchPlayer mp : players) {
+                // Duplicate guard: skip if we already fired this notification
+                boolean alreadySent = notificationRepository
+                        .findByUserIdAndRelatedMatchIdAndType(
+                                mp.getUserId(), match.getId(), NotificationType.MATCH_STARTING_SOON)
+                        .isPresent();
+                if (!alreadySent) {
+                    notificationService.create(
+                            mp.getUserId(),
+                            NotificationType.MATCH_STARTING_SOON,
+                            match.getPostId(),
+                            match.getId(),
+                            "Your match \"" + match.getMatchName() + "\" starts in about 1 hour!");
+                }
+            }
         }
     }
 }

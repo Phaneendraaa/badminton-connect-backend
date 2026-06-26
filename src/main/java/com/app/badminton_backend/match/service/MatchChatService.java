@@ -3,8 +3,10 @@ package com.app.badminton_backend.match.service;
 import com.app.badminton_backend.auth.service.CurrentUserService;
 import com.app.badminton_backend.exceptions.UnauthorizedActionException;
 import com.app.badminton_backend.match.dtos.ChatMessageDtoResponse;
+import com.app.badminton_backend.match.dtos.ChatThreadDtoResponse;
 import com.app.badminton_backend.match.entity.MatchChatMessage;
 import com.app.badminton_backend.match.entity.MatchPlayer;
+import com.app.badminton_backend.match.enums.NotificationType;
 import com.app.badminton_backend.match.repository.MatchChatMessageRepository;
 import com.app.badminton_backend.match.repository.MatchPlayerRepository;
 import com.app.badminton_backend.match.repository.MatchRepository;
@@ -17,9 +19,15 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +39,7 @@ public class MatchChatService {
     private final MatchRepository matchRepository;
     private final ProfileRepository profileRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final NotificationService notificationService;
 
     /**
      * Sends a chat message.
@@ -59,6 +68,25 @@ public class MatchChatService {
         // Broadcast to all subscribers of this match's topic
         messagingTemplate.convertAndSend("/topic/match/" + matchId, response);
 
+        // Notify all other participants (push-style — they may not be actively subscribed)
+        Profile senderProfile = profileRepository.findById(senderId).orElse(null);
+        String senderName = senderProfile != null
+                ? senderProfile.getFirstName() + " " + senderProfile.getLastName() : "Someone";
+        var match = matchRepository.findById(matchId).orElse(null);
+        String matchName = match != null ? match.getMatchName() : "your match";
+
+        List<MatchPlayer> allPlayers = matchPlayerRepository.findByMatchId(matchId);
+        for (MatchPlayer mp : allPlayers) {
+            if (!mp.getUserId().equals(senderId)) {
+                notificationService.create(
+                        mp.getUserId(),
+                        NotificationType.NEW_CHAT_MESSAGE,
+                        null,
+                        matchId,
+                        senderName + ": " + (content.length() > 60 ? content.substring(0, 60) + "…" : content));
+            }
+        }
+
         return response;
     }
 
@@ -82,6 +110,80 @@ public class MatchChatService {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns all match chat threads for the current user, sorted by most
+     * recent message. Each thread corresponds to a match the user participates in.
+     *
+     * "Unread count" is approximated as messages sent in the last 24 hours —
+     * a pragmatic starting point until a proper UserChatReadState table is built.
+     */
+    public List<ChatThreadDtoResponse> getThreads() {
+        UUID currentUserId = currentUserService.getCurrentUser().getId();
+
+        // Collect all matches the user is a MatchPlayer in
+        List<MatchPlayer> myRows = matchPlayerRepository.findByUserId(currentUserId);
+        Map<UUID, com.app.badminton_backend.match.entity.Match> matchMap = new LinkedHashMap<>();
+        for (MatchPlayer mp : myRows) {
+            matchRepository.findById(mp.getMatchId()).ifPresent(m -> matchMap.put(m.getId(), m));
+        }
+        // Also include matches where user is organizer but may not have a MatchPlayer row yet
+        matchRepository.findByOrganizerId(currentUserId).forEach(m -> matchMap.putIfAbsent(m.getId(), m));
+
+        LocalDateTime since24h = LocalDateTime.now().minusHours(24);
+
+        List<ChatThreadDtoResponse> threads = new ArrayList<>();
+        for (com.app.badminton_backend.match.entity.Match match : matchMap.values()) {
+            // Skip completed/cancelled matches from the messages inbox
+            if (match.getStatus() == com.app.badminton_backend.match.enums.MatchStatus.COMPLETED
+                    || match.getStatus() == com.app.badminton_backend.match.enums.MatchStatus.CANCELLED) {
+                continue;
+            }
+
+            // Last message preview
+            var latestOpt = chatMessageRepository.findTopByMatchIdOrderBySentAtDesc(match.getId());
+            String lastMessageContent = latestOpt.map(MatchChatMessage::getContent).orElse(null);
+            LocalDateTime lastMessageAt = latestOpt.map(MatchChatMessage::getSentAt).orElse(null);
+
+            // Unread approximation: messages in last 24h
+            long unreadCount = chatMessageRepository.countByMatchIdAndSentAtAfter(match.getId(), since24h);
+
+            // Other participants' names
+            List<MatchPlayer> allPlayers = matchPlayerRepository.findByMatchId(match.getId());
+            List<String> participantNames = allPlayers.stream()
+                    .filter(mp -> !mp.getUserId().equals(currentUserId))
+                    .map(mp -> {
+                        Profile p = profileRepository.findById(mp.getUserId()).orElse(null);
+                        return p != null ? p.getFirstName() + " " + p.getLastName() : "Unknown";
+                    })
+                    .collect(Collectors.toList());
+
+            threads.add(ChatThreadDtoResponse.builder()
+                    .matchId(match.getId())
+                    .matchName(match.getMatchName())
+                    .matchType(match.getMatchType())
+                    .scheduledAt(match.getScheduledAt())
+                    .lastMessage(lastMessageContent)
+                    .lastMessageAt(lastMessageAt)
+                    .unreadCount((int) unreadCount)
+                    .participantNames(participantNames)
+                    .build());
+        }
+
+        // Sort by most recent activity (lastMessageAt, falling back to match createdAt)
+        threads.sort((a, b) -> {
+            LocalDateTime timeA = a.getLastMessageAt() != null ? a.getLastMessageAt() :
+                    matchMap.get(a.getMatchId()).getCreatedAt();
+            LocalDateTime timeB = b.getLastMessageAt() != null ? b.getLastMessageAt() :
+                    matchMap.get(b.getMatchId()).getCreatedAt();
+            if (timeA == null && timeB == null) return 0;
+            if (timeA == null) return 1;
+            if (timeB == null) return -1;
+            return timeB.compareTo(timeA); // descending: most recent first
+        });
+
+        return threads;
+    }
 
     /**
      * Verifies the given userId is an active MatchPlayer for this match

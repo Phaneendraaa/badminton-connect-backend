@@ -36,6 +36,7 @@ public class MatchJoinRequestService {
     private final EloService eloService;
     private final ProfileRepository profileRepository;
     private final EntityManager entityManager;
+    private final NotificationService notificationService;
 
     // -------------------------------------------------------------------------
     // REQUEST TO JOIN
@@ -87,13 +88,26 @@ public class MatchJoinRequestService {
 
         int eloAtRequest = eloService.getOrCreate(userId).getElo();
 
-        return matchJoinRequestRepository.save(MatchJoinRequest.builder()
+        MatchJoinRequest saved = matchJoinRequestRepository.save(MatchJoinRequest.builder()
                 .postId(postId)
                 .matchId(post.getMatchId())
                 .userId(userId)
                 .status(JoinRequestStatus.PENDING)
                 .eloAtRequest(eloAtRequest)
                 .build());
+
+        // Notify the organizer that someone wants to join
+        Profile requesterProfile = profileRepository.findById(userId).orElse(null);
+        String requesterName = requesterProfile != null
+                ? requesterProfile.getFirstName() + " " + requesterProfile.getLastName() : "Someone";
+        notificationService.create(
+                post.getCreatorId(),
+                NotificationType.JOIN_REQUEST_RECEIVED,
+                postId,
+                post.getMatchId(),
+                requesterName + " requested to join your match");
+
+        return saved;
     }
 
     // -------------------------------------------------------------------------
@@ -170,6 +184,14 @@ public class MatchJoinRequestService {
                 .eloBefore(eloBefore)
                 .build());
 
+        // Notify the requester their request was accepted
+        notificationService.create(
+                request.getUserId(),
+                NotificationType.JOIN_REQUEST_ACCEPTED,
+                request.getPostId(),
+                request.getMatchId(),
+                "Your join request was accepted! You're in the match.");
+
         // Increment slot count
         match.setSlotsJoined(match.getSlotsJoined() + 1);
         matchRepository.save(match);
@@ -185,6 +207,17 @@ public class MatchJoinRequestService {
             // Auto-reject all remaining PENDING requests (single bulk UPDATE in one transaction).
             // This prevents dangling PENDING rows from sitting around after the post fills.
             matchJoinRequestRepository.rejectAllPendingForPost(post.getId());
+
+            // Notify all confirmed players that the match is full
+            List<MatchPlayer> allPlayers = matchPlayerRepository.findByMatchId(match.getId());
+            for (MatchPlayer mp : allPlayers) {
+                notificationService.create(
+                        mp.getUserId(),
+                        NotificationType.POST_FULL,
+                        post.getId(),
+                        match.getId(),
+                        "Your match \"" + match.getMatchName() + "\" is now full. Get ready to play!");
+            }
         }
     }
 
@@ -214,6 +247,14 @@ public class MatchJoinRequestService {
         request.setStatus(JoinRequestStatus.REJECTED);
         request.setRespondedAt(LocalDateTime.now());
         matchJoinRequestRepository.save(request);
+
+        // Notify the requester their request was rejected
+        notificationService.create(
+                request.getUserId(),
+                NotificationType.JOIN_REQUEST_REJECTED,
+                request.getPostId(),
+                request.getMatchId(),
+                "Your join request was not accepted this time.");
     }
 
     // -------------------------------------------------------------------------

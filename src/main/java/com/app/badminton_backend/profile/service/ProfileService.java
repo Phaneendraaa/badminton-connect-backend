@@ -5,8 +5,10 @@ import com.app.badminton_backend.auth.entity.User;
 import com.app.badminton_backend.auth.service.CurrentUserService;
 import com.app.badminton_backend.elo.entity.EloPoints;
 import com.app.badminton_backend.elo.repository.EloPointsRepository;
+import com.app.badminton_backend.match.repository.MatchPlayerRepository;
 import com.app.badminton_backend.profile.dtos.ProfileCreateDto;
 import com.app.badminton_backend.profile.entity.Profile;
+import com.app.badminton_backend.profile.entity.PlayerTrustScore;
 import com.app.badminton_backend.profile.repository.ProfileRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.AllArgsConstructor;
@@ -24,6 +26,8 @@ public class ProfileService {
     private final ProfileRepository profileRepository;
     private final ModelMapper modelMapper;
     private final EloPointsRepository eloPointsRepository;
+    private final MatchPlayerRepository matchPlayerRepository;
+    private final PlayerTrustScoreService playerTrustScoreService;
 
     public Profile findByUserId(UUID userId){
         return profileRepository.findById(userId)
@@ -66,11 +70,20 @@ public class ProfileService {
     }
 
     public com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse getStats() {
-        // Stub implementation as requested
+        UUID userId = currentUserService.getCurrentUser().getId();
+
+        // Real aggregation — single JOIN query per count, no row loading into Java
+        long matchesPlayed = matchPlayerRepository.countCompletedMatchesByUserId(userId);
+        long wins = matchesPlayed > 0 ? matchPlayerRepository.countWinsByUserId(userId) : 0L;
+        double winRate = matchesPlayed == 0 ? 0.0 : (wins / (double) matchesPlayed) * 100.0;
+
+        // Trust score from entity — default 80 for new users, not a hardcoded literal
+        PlayerTrustScore trustScore = playerTrustScoreService.getOrCreate(userId);
+
         return com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse.builder()
-                .matchesPlayed(0)
-                .winRate(0.0)
-                .trustScore(100)
+                .matchesPlayed((int) matchesPlayed)
+                .winRate(winRate)
+                .trustScore(trustScore.getScore())
                 .build();
     }
 }

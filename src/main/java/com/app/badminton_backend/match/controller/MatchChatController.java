@@ -2,6 +2,7 @@ package com.app.badminton_backend.match.controller;
 
 import com.app.badminton_backend.auth.service.CurrentUserService;
 import com.app.badminton_backend.match.dtos.ChatMessageDtoResponse;
+import com.app.badminton_backend.match.dtos.ChatThreadDtoResponse;
 import com.app.badminton_backend.match.dtos.SendMessageDtoRequest;
 import com.app.badminton_backend.match.service.MatchChatService;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -42,6 +44,19 @@ public class MatchChatController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
         return ResponseEntity.ok(matchChatService.getHistory(matchId, page, size));
+    }
+
+    /**
+     * GET /match-chat/threads
+     * Returns all active match chat threads for the current user.
+     * Each thread is a match the user participates in, with the latest
+     * message preview and an unread count.
+     *
+     * Used by Messages.js to render the inbox.
+     */
+    @GetMapping("/match-chat/threads")
+    public ResponseEntity<List<ChatThreadDtoResponse>> getThreads() {
+        return ResponseEntity.ok(matchChatService.getThreads());
     }
 
     /**
