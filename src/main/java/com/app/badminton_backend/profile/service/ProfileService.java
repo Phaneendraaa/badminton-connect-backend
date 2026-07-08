@@ -15,8 +15,10 @@ import lombok.AllArgsConstructor;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @AllArgsConstructor
@@ -71,13 +73,42 @@ public class ProfileService {
 
     public com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse getStats() {
         UUID userId = currentUserService.getCurrentUser().getId();
+        return buildStats(userId);
+    }
 
-        // Real aggregation — single JOIN query per count, no row loading into Java
+    /**
+     * Returns match statistics for any user — used by the public profile view.
+     * Does not require the viewer to be the profile owner.
+     */
+    public com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse getPublicStats(UUID userId) {
+        // Verify the profile exists before returning stats
+        findByUserId(userId);
+        return buildStats(userId);
+    }
+
+    /**
+     * Case-insensitive partial search across first + last name.
+     * Returns up to 50 results to keep response size bounded.
+     */
+    public List<com.app.badminton_backend.profile.dtos.ProfileDtoResponse> searchProfiles(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        return profileRepository.searchByName(query.trim()).stream()
+                .limit(50)
+                .map(p -> modelMapper.map(p, com.app.badminton_backend.profile.dtos.ProfileDtoResponse.class))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse buildStats(UUID userId) {
         long matchesPlayed = matchPlayerRepository.countCompletedMatchesByUserId(userId);
         long wins = matchesPlayed > 0 ? matchPlayerRepository.countWinsByUserId(userId) : 0L;
         double winRate = matchesPlayed == 0 ? 0.0 : (wins / (double) matchesPlayed) * 100.0;
 
-        // Trust score from entity — default 80 for new users, not a hardcoded literal
         PlayerTrustScore trustScore = playerTrustScoreService.getOrCreate(userId);
 
         return com.app.badminton_backend.profile.dtos.ProfileStatsDtoResponse.builder()
@@ -87,3 +118,4 @@ public class ProfileService {
                 .build();
     }
 }
+

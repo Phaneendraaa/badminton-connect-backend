@@ -170,17 +170,14 @@ public class MatchJoinRequestService {
         request.setRespondedAt(LocalDateTime.now());
         matchJoinRequestRepository.save(request);
 
-        // Add the player to the match. Auto-assign team based on join order:
-        // first joiner → TEAM_A, second → TEAM_B, third → TEAM_A, fourth → TEAM_B.
-        int teamACount = matchPlayerRepository.findByMatchIdAndTeam(match.getId(), Team.TEAM_A).size();
-        int teamBCount = matchPlayerRepository.findByMatchIdAndTeam(match.getId(), Team.TEAM_B).size();
-        Team assignedTeam = (teamACount <= teamBCount) ? Team.TEAM_A : Team.TEAM_B;
-
+        // Add the player to the match with UNASSIGNED team.
+        // The organizer will explicitly place all players into TEAM_A / TEAM_B
+        // via POST /match-play/{matchId}/assign-teams before starting the match.
         int eloBefore = eloService.getOrCreate(request.getUserId()).getElo();
         matchPlayerRepository.save(MatchPlayer.builder()
                 .matchId(match.getId())
                 .userId(request.getUserId())
-                .team(assignedTeam)
+                .team(Team.UNASSIGNED)
                 .eloBefore(eloBefore)
                 .build());
 

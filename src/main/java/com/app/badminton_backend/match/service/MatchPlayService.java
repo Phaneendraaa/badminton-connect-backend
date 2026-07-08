@@ -1,12 +1,17 @@
 package com.app.badminton_backend.match.service;
 
+import com.app.badminton_backend.auth.service.CurrentUserService;
 import com.app.badminton_backend.elo.entity.EloPoints;
 import com.app.badminton_backend.elo.service.EloService;
+import com.app.badminton_backend.exceptions.UnauthorizedActionException;
+import com.app.badminton_backend.match.dtos.AssignTeamsDtoRequest;
+import com.app.badminton_backend.match.dtos.MatchDetailDtoResponse;
 import com.app.badminton_backend.match.dtos.MatchPlayerDto;
 import com.app.badminton_backend.match.entity.Match;
 import com.app.badminton_backend.match.entity.MatchPlayer;
 import com.app.badminton_backend.match.entity.MatchSet;
 import com.app.badminton_backend.match.enums.MatchStatus;
+import com.app.badminton_backend.match.enums.MatchType;
 import com.app.badminton_backend.match.enums.Team;
 import com.app.badminton_backend.match.repository.MatchPlayerRepository;
 import com.app.badminton_backend.match.repository.MatchRepository;
@@ -16,32 +21,150 @@ import com.app.badminton_backend.profile.entity.Profile;
 import com.app.badminton_backend.profile.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class MatchPlayService {
+    private final CurrentUserService currentUserService;
     private final MatchRepository matchRepository;
     private final MatchSetRepository matchSetRepository;
     private final MatchPlayerRepository matchPlayerRepository;
     private final EloService eloService;
     private final ProfileRepository profileRepository;
 
+    // -------------------------------------------------------------------------
+    // START MATCH
+    // -------------------------------------------------------------------------
+
+    /**
+     * Organizer starts the match.
+     *
+     * Guards:
+     *  - Match must be CREATED (all slots filled) — not PENDING, PLAYING, or COMPLETED.
+     *  - Every MatchPlayer row must have team != UNASSIGNED, otherwise team formation
+     *    has not been completed and we reject the start.
+     */
+    @Transactional
     public void startMatch(UUID matchId) {
-        Match match = matchRepository.findById(matchId).orElseThrow();
+        Match match = matchRepository.findById(matchId).orElseThrow(
+                () -> new IllegalArgumentException("Match not found: " + matchId));
 
         if (match.getStatus() != MatchStatus.CREATED) {
-            throw new IllegalStateException("Match can only be started after teams are assigned (status must be CREATED)");
+            throw new IllegalStateException(
+                    "Match can only be started after all slots are filled (status must be CREATED, current: "
+                    + match.getStatus() + ")");
+        }
+
+        // Guard: all players must have been assigned to a team
+        List<MatchPlayer> unassigned = matchPlayerRepository.findByMatchId(matchId).stream()
+                .filter(mp -> mp.getTeam() == Team.UNASSIGNED)
+                .collect(Collectors.toList());
+        if (!unassigned.isEmpty()) {
+            throw new IllegalStateException(
+                    "Cannot start match: " + unassigned.size() +
+                    " player(s) are still UNASSIGNED. Complete team formation first via /assign-teams.");
         }
 
         match.setStatus(MatchStatus.PLAYING);
         match.setPlayedAt(LocalDateTime.now());
         matchRepository.save(match);
     }
+
+    // -------------------------------------------------------------------------
+    // ASSIGN TEAMS (formation step)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Organizer assigns all confirmed players to TEAM_A or TEAM_B, and optionally
+     * sets custom team display names.
+     *
+     * Guards:
+     *  - Only the organizer may call this.
+     *  - Match must be in CREATED status (all slots filled, but not yet PLAYING).
+     *  - Every MatchPlayer for this match must appear in exactly one of teamAUserIds / teamBUserIds.
+     *  - Team sizes must match the match type (1+1 for SINGLES, 2+2 for DOUBLES).
+     */
+    @Transactional
+    public void assignTeams(UUID matchId, AssignTeamsDtoRequest request) {
+        UUID callerId = currentUserService.getCurrentUser().getId();
+
+        Match match = matchRepository.findById(matchId).orElseThrow(
+                () -> new IllegalArgumentException("Match not found: " + matchId));
+
+        // Organizer guard
+        if (!match.getOrganizerId().equals(callerId)) {
+            throw new UnauthorizedActionException("Only the match organizer can assign teams");
+        }
+
+        // Status guard — only valid before PLAYING
+        if (match.getStatus() != MatchStatus.CREATED) {
+            throw new IllegalStateException(
+                    "Team assignment is only allowed when match is CREATED (current: " + match.getStatus() + ")");
+        }
+
+        List<UUID> teamAIds = request.getTeamAUserIds() != null ? request.getTeamAUserIds() : List.of();
+        List<UUID> teamBIds = request.getTeamBUserIds() != null ? request.getTeamBUserIds() : List.of();
+
+        // Size validation
+        int expectedPerTeam = match.getMatchType() == MatchType.SINGLES ? 1 : 2;
+        if (teamAIds.size() != expectedPerTeam || teamBIds.size() != expectedPerTeam) {
+            throw new IllegalArgumentException(
+                    "Expected " + expectedPerTeam + " player(s) per team for " + match.getMatchType()
+                    + " but got Team A=" + teamAIds.size() + ", Team B=" + teamBIds.size());
+        }
+
+        // No duplicates across teams
+        Set<UUID> allInRequest = new HashSet<>(teamAIds);
+        for (UUID id : teamBIds) {
+            if (!allInRequest.add(id)) {
+                throw new IllegalArgumentException(
+                        "Player " + id + " appears in both Team A and Team B");
+            }
+        }
+
+        // Every match player must appear in the request
+        List<MatchPlayer> allPlayers = matchPlayerRepository.findByMatchId(matchId);
+        Set<UUID> allPlayerIds = allPlayers.stream()
+                .map(MatchPlayer::getUserId).collect(Collectors.toSet());
+
+        if (!allPlayerIds.equals(allInRequest)) {
+            throw new IllegalArgumentException(
+                    "The provided player lists do not match the match's confirmed roster. " +
+                    "Every accepted player must be assigned to exactly one team.");
+        }
+
+        // Apply assignments
+        for (MatchPlayer mp : allPlayers) {
+            if (teamAIds.contains(mp.getUserId())) {
+                mp.setTeam(Team.TEAM_A);
+            } else {
+                mp.setTeam(Team.TEAM_B);
+            }
+            matchPlayerRepository.save(mp);
+        }
+
+        // Apply optional custom names
+        if (request.getTeamAName() != null && !request.getTeamAName().isBlank()) {
+            match.setTeamAName(request.getTeamAName().trim());
+        }
+        if (request.getTeamBName() != null && !request.getTeamBName().isBlank()) {
+            match.setTeamBName(request.getTeamBName().trim());
+        }
+        matchRepository.save(match);
+    }
+
+    // -------------------------------------------------------------------------
+    // ADD / UPDATE / DELETE SET SCORES
+    // -------------------------------------------------------------------------
 
     public void addMatchSet(UUID matchId, MatchSetDtoRequest request) {
         Match match = matchRepository.findById(matchId).orElseThrow();
@@ -74,6 +197,11 @@ public class MatchPlayService {
         matchSetRepository.save(set);
     }
 
+    // -------------------------------------------------------------------------
+    // FINISH MATCH
+    // -------------------------------------------------------------------------
+
+    @Transactional
     public void finishMatch(UUID matchId) {
         Match match = matchRepository.findById(matchId).orElseThrow();
 
@@ -135,6 +263,45 @@ public class MatchPlayService {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // DELETE SET
+    // -------------------------------------------------------------------------
+
+    public void deleteMatchSet(UUID matchId, Integer setNumber) {
+        Match match = matchRepository.findById(matchId).orElseThrow(
+                () -> new RuntimeException("Match not found"));
+        if (match.getStatus() != MatchStatus.PLAYING) {
+            throw new IllegalStateException("Cannot delete sets unless match is PLAYING");
+        }
+
+        MatchSet set = matchSetRepository.findByMatchIdAndSetNumber(matchId, setNumber)
+                .orElseThrow(() -> new RuntimeException("Set not found"));
+
+        matchSetRepository.delete(set);
+    }
+
+    // -------------------------------------------------------------------------
+    // READ — getMatchDetail (replaces the three individual get* methods)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a typed MatchDetailDtoResponse combining match metadata, sets, and players.
+     * Replaces the previous Map.of(...) pattern in the controller.
+     */
+    public MatchDetailDtoResponse getMatchDetail(UUID matchId) {
+        Match match = matchRepository.findById(matchId).orElseThrow(
+                () -> new IllegalArgumentException("Match not found: " + matchId));
+        List<MatchSet> sets = matchSetRepository.findByMatchId(matchId);
+        List<MatchPlayerDto> players = buildPlayerDtos(matchId);
+
+        return MatchDetailDtoResponse.builder()
+                .match(match)
+                .sets(sets)
+                .players(players)
+                .build();
+    }
+
+    // Kept for any remaining internal callers
     public Match getMatch(UUID matchId) {
         return matchRepository.findById(matchId).orElseThrow();
     }
@@ -144,6 +311,14 @@ public class MatchPlayService {
     }
 
     public List<MatchPlayerDto> getMatchPlayers(UUID matchId) {
+        return buildPlayerDtos(matchId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private List<MatchPlayerDto> buildPlayerDtos(UUID matchId) {
         List<MatchPlayer> players = matchPlayerRepository.findByMatchId(matchId);
         List<MatchPlayerDto> dtos = new ArrayList<>();
 
@@ -166,17 +341,4 @@ public class MatchPlayService {
         }
         return dtos;
     }
-
-    public void deleteMatchSet(UUID matchId, Integer setNumber) {
-        Match match = matchRepository.findById(matchId).orElseThrow(() -> new RuntimeException("Match not found"));
-        if (match.getStatus() != MatchStatus.PLAYING) {
-            throw new IllegalStateException("Cannot delete sets unless match is PLAYING");
-        }
-        
-        MatchSet set = matchSetRepository.findByMatchIdAndSetNumber(matchId, setNumber)
-                .orElseThrow(() -> new RuntimeException("Set not found"));
-        
-        matchSetRepository.delete(set);
-    }
 }
-

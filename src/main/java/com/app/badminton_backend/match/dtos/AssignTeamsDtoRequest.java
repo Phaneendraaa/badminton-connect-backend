@@ -15,4 +15,8 @@ import java.util.UUID;
 public class AssignTeamsDtoRequest {
     private List<UUID> teamAUserIds;
     private List<UUID> teamBUserIds;
+    /** Optional: organizer-chosen display name for Team A (e.g. "Smashers"). */
+    private String teamAName;
+    /** Optional: organizer-chosen display name for Team B (e.g. "Shuttlers"). */
+    private String teamBName;
 }

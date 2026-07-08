@@ -10,6 +10,7 @@ import java.util.UUID;
 
 @Data
 @AllArgsConstructor
+@lombok.NoArgsConstructor
 public class ProfileCreateDto {
 
     private String firstName;
@@ -21,4 +22,10 @@ public class ProfileCreateDto {
     private LocalDate dateOfBirth;
 
     private GenderEnum genderEnum;
+
+    /**
+     * Optional: the user's home city, collected at signup for personalised feed defaults.
+     * Nullable — existing users who signed up before this field was added won't have it.
+     */
+    private String homeCity;
 }

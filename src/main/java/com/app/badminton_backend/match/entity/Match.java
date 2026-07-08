@@ -49,6 +49,14 @@ public class Match {
     @Enumerated(EnumType.STRING)
     private Team winnerTeam; // TEAM_A, TEAM_B — null until confirmed
 
+    /** Organizer-chosen display name for Team A. Defaults to "Team A" if not set. */
+    @Builder.Default
+    private String teamAName = "Team A";
+
+    /** Organizer-chosen display name for Team B. Defaults to "Team B" if not set. */
+    @Builder.Default
+    private String teamBName = "Team B";
+
     @Column(nullable = false)
     private Integer slotsTotal; // 2 for singles, 4 for doubles
 

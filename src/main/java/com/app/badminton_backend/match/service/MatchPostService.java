@@ -107,11 +107,11 @@ public class MatchPostService {
                 .expiresAt(scheduledAt.plusHours(2))
                 .build());
 
-        // Save the organizer as the first player in the roster (Team A)
+        // Save the organizer as the first player in the roster (UNASSIGNED until formation step).
         matchPlayerRepository.save(MatchPlayer.builder()
                 .matchId(match.getId())
                 .userId(creatorId)
-                .team(Team.TEAM_A)
+                .team(Team.UNASSIGNED)
                 .eloBefore(eloService.getOrCreate(creatorId).getElo())
                 .build());
 
@@ -415,14 +415,8 @@ public class MatchPostService {
         LocalDateTime windowStart = LocalDateTime.now().plusMinutes(55);
         LocalDateTime windowEnd   = LocalDateTime.now().plusMinutes(65);
 
-        // Find all non-completed matches whose scheduledAt is in the [+55min, +65min] window
-        List<Match> upcoming = matchRepository.findAll().stream()
-                .filter(m -> m.getScheduledAt() != null
-                        && !m.getScheduledAt().isBefore(windowStart)
-                        && !m.getScheduledAt().isAfter(windowEnd)
-                        && m.getStatus() != MatchStatus.COMPLETED
-                        && m.getStatus() != MatchStatus.CANCELLED)
-                .collect(Collectors.toList());
+        // Find matches whose scheduledAt is in the [+55min, +65min] window — DB-level filter, no full scan.
+        List<Match> upcoming = matchRepository.findUpcomingInWindow(windowStart, windowEnd);
 
         for (Match match : upcoming) {
             List<MatchPlayer> players = matchPlayerRepository.findByMatchId(match.getId());

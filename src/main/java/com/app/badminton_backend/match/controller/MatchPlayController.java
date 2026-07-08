@@ -1,5 +1,7 @@
 package com.app.badminton_backend.match.controller;
 
+import com.app.badminton_backend.match.dtos.AssignTeamsDtoRequest;
+import com.app.badminton_backend.match.dtos.MatchDetailDtoResponse;
 import com.app.badminton_backend.match.dtos.MatchSetDtoRequest;
 import com.app.badminton_backend.match.service.MatchPlayService;
 import lombok.RequiredArgsConstructor;
@@ -16,23 +18,33 @@ public class MatchPlayController {
 
     private final MatchPlayService matchPlayService;
 
+    /**
+     * Returns the full match state: metadata, sets, and player list.
+     * Returns a typed MatchDetailDtoResponse (replaces the previous Map).
+     */
     @GetMapping("/{matchId}")
-    public ResponseEntity<?> getMatchData(@PathVariable UUID matchId) {
-        try {
-            return ResponseEntity.ok(Map.of(
-                    "match", matchPlayService.getMatch(matchId),
-                    "sets", matchPlayService.getMatchSets(matchId),
-                    "players", matchPlayService.getMatchPlayers(matchId)
-            ));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "error", e.getClass().getName(),
-                    "message", e.getMessage() != null ? e.getMessage() : "No message"
-            ));
-        }
+    public ResponseEntity<MatchDetailDtoResponse> getMatchData(@PathVariable UUID matchId) {
+        return ResponseEntity.ok(matchPlayService.getMatchDetail(matchId));
     }
 
+    /**
+     * Organizer assigns players to Team A / Team B (and optionally renames the teams).
+     * Must be called before startMatch(). Match must be in CREATED status.
+     *
+     * Body: { teamAUserIds: [...], teamBUserIds: [...], teamAName?: string, teamBName?: string }
+     */
+    @PostMapping("/{matchId}/assign-teams")
+    public ResponseEntity<?> assignTeams(
+            @PathVariable UUID matchId,
+            @RequestBody AssignTeamsDtoRequest request) {
+        matchPlayService.assignTeams(matchId, request);
+        return ResponseEntity.ok(Map.of("message", "Teams assigned successfully"));
+    }
+
+    /**
+     * Organizer starts the match (status CREATED → PLAYING).
+     * Requires all players to have been assigned (no UNASSIGNED entries).
+     */
     @PostMapping("/{matchId}/start")
     public ResponseEntity<?> startMatch(@PathVariable UUID matchId) {
         matchPlayService.startMatch(matchId);

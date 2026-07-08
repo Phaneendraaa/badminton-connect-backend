@@ -1,6 +1,5 @@
 package com.app.badminton_backend.match.entity;
 
-
 import com.app.badminton_backend.match.enums.Team;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
