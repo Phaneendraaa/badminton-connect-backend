@@ -45,5 +45,15 @@ public class User {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    /**
+     * Expo push token for the user's most-recently-registered device.
+     * Set via POST /user/push-token after login; cleared on logout via
+     * DELETE /user/push-token. Nullable — no push if the user denied
+     * notification permission or hasn't updated yet.
+     *
+     * Format: "ExponentPushToken[xxxx...]"
+     */
+    @Column(name = "push_token")
+    private String pushToken;
 
 }

@@ -15,12 +15,15 @@ import com.app.badminton_backend.profile.repository.ProfileRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -37,6 +40,10 @@ public class MatchJoinRequestService {
     private final ProfileRepository profileRepository;
     private final EntityManager entityManager;
     private final NotificationService notificationService;
+    private final SimpMessagingTemplate messagingTemplate;
+
+    /** STOMP topic for live join-request updates on a specific post. */
+    private static final String REQUESTS_TOPIC = "/topic/post/";
 
     // -------------------------------------------------------------------------
     // REQUEST TO JOIN
@@ -106,6 +113,9 @@ public class MatchJoinRequestService {
                 postId,
                 post.getMatchId(),
                 requesterName + " requested to join your match");
+
+        // Broadcast live update so the organizer's PostDetail refreshes instantly
+        broadcastRequestsUpdate(postId, "REQUEST_CREATED");
 
         return saved;
     }
@@ -216,6 +226,9 @@ public class MatchJoinRequestService {
                         "Your match \"" + match.getMatchName() + "\" is now full. Get ready to play!");
             }
         }
+
+        // Broadcast so organizer's PostDetail updates instantly
+        broadcastRequestsUpdate(request.getPostId(), "REQUEST_ACCEPTED");
     }
 
     // -------------------------------------------------------------------------
@@ -252,6 +265,9 @@ public class MatchJoinRequestService {
                 request.getPostId(),
                 request.getMatchId(),
                 "Your join request was not accepted this time.");
+
+        // Broadcast live update
+        broadcastRequestsUpdate(request.getPostId(), "REQUEST_REJECTED");
     }
 
     // -------------------------------------------------------------------------
@@ -278,6 +294,9 @@ public class MatchJoinRequestService {
         request.setStatus(JoinRequestStatus.CANCELLED);
         request.setRespondedAt(LocalDateTime.now());
         matchJoinRequestRepository.save(request);
+
+        // Broadcast so the organizer's PostDetail removes the cancelled request
+        broadcastRequestsUpdate(request.getPostId(), "REQUEST_CANCELLED");
     }
 
     // -------------------------------------------------------------------------
@@ -341,6 +360,9 @@ public class MatchJoinRequestService {
         request.setStatus(JoinRequestStatus.CANCELLED);
         request.setRespondedAt(LocalDateTime.now());
         matchJoinRequestRepository.save(request);
+
+        // Broadcast so PostDetail updates the slot count live
+        broadcastRequestsUpdate(request.getPostId(), "REQUEST_CANCELLED");
     }
 
     // -------------------------------------------------------------------------

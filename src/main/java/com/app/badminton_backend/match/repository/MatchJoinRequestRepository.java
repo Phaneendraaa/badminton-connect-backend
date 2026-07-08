@@ -18,6 +18,8 @@ public interface MatchJoinRequestRepository extends JpaRepository<MatchJoinReque
 
     List<MatchJoinRequest> findByPostIdAndStatus(UUID postId, JoinRequestStatus status);
 
+    long countByPostIdAndStatus(UUID postId, JoinRequestStatus status);
+
     List<MatchJoinRequest> findByUserId(UUID userId);
 
     Optional<MatchJoinRequest> findByPostIdAndUserId(UUID postId, UUID userId);

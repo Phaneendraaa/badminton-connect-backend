@@ -20,6 +20,8 @@ import com.app.badminton_backend.match.dtos.MatchSetDtoRequest;
 import com.app.badminton_backend.profile.entity.Profile;
 import com.app.badminton_backend.profile.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MatchPlayService {
@@ -40,6 +43,10 @@ public class MatchPlayService {
     private final MatchPlayerRepository matchPlayerRepository;
     private final EloService eloService;
     private final ProfileRepository profileRepository;
+    private final SimpMessagingTemplate messagingTemplate;
+
+    // ── STOMP topic prefix for live match-play state ──────────────────────────
+    private static final String MATCH_PLAY_TOPIC = "/topic/match-play/";
 
     // -------------------------------------------------------------------------
     // START MATCH
@@ -77,6 +84,8 @@ public class MatchPlayService {
         match.setStatus(MatchStatus.PLAYING);
         match.setPlayedAt(LocalDateTime.now());
         matchRepository.save(match);
+
+        broadcastState(matchId);
     }
 
     // -------------------------------------------------------------------------
@@ -160,6 +169,8 @@ public class MatchPlayService {
             match.setTeamBName(request.getTeamBName().trim());
         }
         matchRepository.save(match);
+
+        broadcastState(matchId);
     }
 
     // -------------------------------------------------------------------------
@@ -195,6 +206,8 @@ public class MatchPlayService {
             set.setWinner(winner);
         }
         matchSetRepository.save(set);
+
+        broadcastState(matchId);
     }
 
     // -------------------------------------------------------------------------
@@ -261,6 +274,8 @@ public class MatchPlayService {
                 matchPlayerRepository.save(mp);
             }
         }
+
+        broadcastState(matchId);
     }
 
     // -------------------------------------------------------------------------
@@ -278,6 +293,8 @@ public class MatchPlayService {
                 .orElseThrow(() -> new RuntimeException("Set not found"));
 
         matchSetRepository.delete(set);
+
+        broadcastState(matchId);
     }
 
     // -------------------------------------------------------------------------
@@ -340,5 +357,32 @@ public class MatchPlayService {
                     .build());
         }
         return dtos;
+    }
+
+    // -------------------------------------------------------------------------
+    // Private: broadcast full match-play state to all subscribers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Publishes the complete MatchDetailDtoResponse to /topic/match-play/{matchId}.
+     * Called after every state-changing action so all connected clients replace
+     * their local state wholesale — no diffing needed on the frontend side.
+     *
+     * Uses the same DTO as GET /match-play/{matchId}, meaning the frontend can
+     * reuse identical parsing logic for both the initial REST fetch and every
+     * subsequent socket push.
+     */
+    private void broadcastState(UUID matchId) {
+        try {
+            MatchDetailDtoResponse state = getMatchDetail(matchId);
+            messagingTemplate.convertAndSend(MATCH_PLAY_TOPIC + matchId, state);
+            log.debug("[MatchPlay] Broadcast state for match {} → status={}",
+                    matchId, state.getMatch().getStatus());
+        } catch (Exception ex) {
+            // Non-fatal: DB write already succeeded; just log so we don't
+            // roll back the transaction over a failed broadcast.
+            log.warn("[MatchPlay] Failed to broadcast state for match {}: {}",
+                    matchId, ex.getMessage());
+        }
     }
 }
