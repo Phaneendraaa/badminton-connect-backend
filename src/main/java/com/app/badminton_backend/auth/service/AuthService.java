@@ -3,7 +3,6 @@ package com.app.badminton_backend.auth.service;
 import com.app.badminton_backend.auth.dto.LoginRequestDto;
 import com.app.badminton_backend.auth.dto.LoginResponseDto;
 import com.app.badminton_backend.auth.dto.PhoneOtpDto;
-import com.app.badminton_backend.auth.dto.SignUpDtoLocal;
 import com.app.badminton_backend.auth.entity.Otp;
 import com.app.badminton_backend.auth.entity.RefreshToken;
 import com.app.badminton_backend.auth.entity.User;
@@ -14,9 +13,7 @@ import com.app.badminton_backend.auth.repository.OtpRepository;
 import com.app.badminton_backend.auth.repository.RefreshTokenRepository;
 import com.app.badminton_backend.auth.repository.UserRepository;
 import com.app.badminton_backend.auth.util.AuthUtil;
-import com.app.badminton_backend.exceptions.DuplicateException;
 import com.app.badminton_backend.exceptions.InvalidOtpException;
-import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
@@ -38,44 +35,9 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final AuthUtil authUtil;
 
-//    @Transactional
-//    public void signupSendOtp(@Valid SignUpDtoLocal signUpDtoLocal) {
-//        String phoneNumber = normalizePhoneNumber(signUpDtoLocal.getPhoneNumber());
-//        if (userRepository.findByPhoneNumber(phoneNumber) != null) {
-//            throw new DuplicateException("User already exists with this phone number");
-//        }
-//        System.out.println("New user");
-//        Otp otp = sendOtpSMS.sendOneTimePassword(phoneNumber, OtpType.VERIFY);
-//        System.out.println("otp sent");
-//        otpRepository.save(otp);
-//    }
-//
-//    @Transactional
-//    public String verifySignupOtp(@Valid PhoneOtpDto phoneOtpDto) {
-//        String phoneNumber = normalizePhoneNumber(phoneOtpDto.getPhoneNumber());
-//        Otp otp = findValidOtp(phoneNumber, phoneOtpDto.getOtp(), OtpType.VERIFY, LocalDateTime.now());
-//
-//        if (userRepository.findByPhoneNumber(phoneNumber) != null) {
-//            throw new DuplicateException("User already exists with this phone number");
-//        }
-//
-//        User user = User.builder()
-//                .phoneNumber(phoneNumber)
-//                .isPhoneVerified(true)
-//                .role(UserRole.USER)
-//                .build();
-//        userRepository.save(user);
-//
-//        otp.setVerified(true);
-//        return "Signup successful";
-//    }
-
     @Transactional
     public void loginSendOtp(@Valid LoginRequestDto loginRequestDto) {
         String phoneNumber = normalizePhoneNumber(loginRequestDto.getPhoneNumber());
-//        if (userRepository.findByPhoneNumber(phoneNumber) == null) {
-//            throw new EntityNotFoundException("User does not exist, please sign up");
-//        }
 
         Otp otp = sendOtpSMS.sendOneTimePassword(phoneNumber, OtpType.LOGIN);
         otpRepository.save(otp);

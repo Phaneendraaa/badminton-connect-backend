@@ -18,7 +18,7 @@ public class SendOtpSMS {
     private final TwilioConfig twilioConfig;
     private final OtpGenerator otpGenerator;
     public Otp sendOneTimePassword(String phoneNumber, OtpType otpType) {
-        System.out.println("triggered otp "+phoneNumber);
+//        System.out.println("triggered otp "+phoneNumber);
         String normalizedPhone = normalizePhoneNumber(phoneNumber);
         String otpValue = otpGenerator.generateOtp();
         String text = "Your Badminton app verification code is: " + otpValue;

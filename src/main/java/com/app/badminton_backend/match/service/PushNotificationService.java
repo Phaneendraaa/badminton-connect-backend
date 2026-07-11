@@ -31,7 +31,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PushNotificationService {
 
-    private static final String EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+    @org.springframework.beans.factory.annotation.Value("${expo.push_url}")
+    private String expoPushUrl;
 
     private final RestTemplate restTemplate;
 
@@ -67,7 +68,7 @@ public class PushNotificationService {
             headers.set("Accept-Encoding", "gzip, deflate");
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(message, headers);
-            restTemplate.postForObject(EXPO_PUSH_URL, request, String.class);
+            restTemplate.postForObject(expoPushUrl, request, String.class);
 
             log.debug("[Push] Sent '{}' to token ...{}", title,
                     expoPushToken.length() > 10 ? expoPushToken.substring(expoPushToken.length() - 10) : expoPushToken);

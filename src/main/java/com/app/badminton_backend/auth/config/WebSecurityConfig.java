@@ -48,6 +48,8 @@ public class WebSecurityConfig {
                         // Real auth happens in WebSocketAuthInterceptor on
                         // the STOMP CONNECT frame.
                         .requestMatchers("/ws/**").permitAll()
+                        // Spring Actuator health endpoint for production monitoring
+                        .requestMatchers("/actuator/health").permitAll()
                         // ── All other endpoints require authentication ────
                         .anyRequest().authenticated()
                 )
