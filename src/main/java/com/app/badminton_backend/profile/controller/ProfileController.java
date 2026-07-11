@@ -10,6 +10,7 @@ import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.app.badminton_backend.profile.dtos.ProfileAnalyticsDtoResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,6 +65,16 @@ public class ProfileController {
     public ResponseEntity<List<ProfileDtoResponse>> searchProfiles(
             @RequestParam(name = "q", required = false, defaultValue = "") String query) {
         return ResponseEntity.ok(profileService.searchProfiles(query));
+    }
+
+    @GetMapping("/analytics")
+    public ResponseEntity<ProfileAnalyticsDtoResponse> getAnalytics() {
+        return ResponseEntity.ok(profileService.getAnalytics());
+    }
+
+    @GetMapping("/{userId}/analytics")
+    public ResponseEntity<ProfileAnalyticsDtoResponse> getPublicAnalytics(@PathVariable UUID userId) {
+        return ResponseEntity.ok(profileService.getPublicAnalytics(userId));
     }
 }
 

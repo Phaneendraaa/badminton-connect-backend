@@ -40,4 +40,11 @@ public interface MatchPlayerRepository extends JpaRepository<MatchPlayer, UUID> 
            "AND m.status = com.app.badminton_backend.match.enums.MatchStatus.COMPLETED " +
            "AND mp.team = m.winnerTeam")
     long countWinsByUserId(@Param("userId") UUID userId);
+
+    @Query("SELECT mp FROM MatchPlayer mp " +
+           "JOIN Match m ON m.id = mp.matchId " +
+           "WHERE mp.userId = :userId " +
+           "AND m.status = com.app.badminton_backend.match.enums.MatchStatus.COMPLETED " +
+           "ORDER BY m.playedAt DESC")
+    List<MatchPlayer> findCompletedMatchesByUserId(@Param("userId") UUID userId);
 }
