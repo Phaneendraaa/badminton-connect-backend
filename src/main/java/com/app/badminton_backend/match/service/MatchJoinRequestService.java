@@ -416,4 +416,16 @@ public class MatchJoinRequestService {
                 .postStatus(post != null ? post.getStatus() : null)
                 .build();
     }
+
+    private void broadcastRequestsUpdate(UUID postId, String eventType) {
+        long pendingCount = matchJoinRequestRepository.countByPostIdAndStatus(postId, JoinRequestStatus.PENDING);
+        messagingTemplate.convertAndSend(
+                REQUESTS_TOPIC + postId + "/requests",
+                Map.of(
+                        "postId", postId,
+                        "pendingCount", pendingCount,
+                        "eventType", eventType
+                )
+        );
+    }
 }
