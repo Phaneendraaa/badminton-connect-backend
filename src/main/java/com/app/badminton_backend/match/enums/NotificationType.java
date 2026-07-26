@@ -7,5 +7,7 @@ public enum NotificationType {
     POST_FULL,               // all players: the match is now full
     POST_CANCELLED,          // all players: the post/match was cancelled
     MATCH_STARTING_SOON,     // all players: match starts in ~1 hour
-    NEW_CHAT_MESSAGE         // participant: someone sent a chat message
+    NEW_CHAT_MESSAGE,        // participant: someone sent a chat message
+    PLAYER_REMOVED,          // removed player: organizer removed you from the match
+    MATCH_TIME_EXTENDED      // all confirmed players: organizer extended the scheduled time
 }

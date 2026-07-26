@@ -437,4 +437,83 @@ public class MatchPostService {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // EXTEND POST (organizer reschedules a FULL/confirmed match)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Organizer extends the scheduled time of a FULL post after confirmation.
+     *
+     * Validation:
+     *  - Only the post creator may call this.
+     *  - Post must be FULL (confirmed, not OPEN/EXPIRED/CANCELLED).
+     *  - newScheduledAt must be strictly in the future.
+     *  - newExpiresAt must be after newScheduledAt.
+     *  - newExpiresAt must be within 24 hours of the current expiresAt (extension cap per call).
+     *
+     * Side effects:
+     *  - MatchPost.scheduledAt and MatchPost.expiresAt updated.
+     *  - Match.scheduledAt updated (so MATCH_STARTING_SOON job stays accurate).
+     *  - MATCH_TIME_EXTENDED in-app notification sent to all confirmed MatchPlayers.
+     */
+    @Transactional
+    public void extendPost(UUID postId, LocalDateTime newScheduledAt, LocalDateTime newExpiresAt) {
+        UUID callerId = currentUserService.getCurrentUser().getId();
+
+        MatchPost post = matchPostRepository.findById(postId)
+                .orElseThrow(() -> new PostNotFoundException("Post not found: " + postId));
+
+        if (!post.getCreatorId().equals(callerId)) {
+            throw new UnauthorizedActionException("Only the post creator can extend the play time");
+        }
+
+        if (post.getStatus() != PostStatus.FULL) {
+            throw new IllegalStateException(
+                    "Play time can only be extended for a FULL (confirmed) post. Current status: " + post.getStatus());
+        }
+
+        if (!newScheduledAt.isAfter(LocalDateTime.now())) {
+            throw new IllegalArgumentException("New scheduled time must be in the future");
+        }
+
+        if (!newExpiresAt.isAfter(newScheduledAt)) {
+            throw new IllegalArgumentException("New expiry time must be after the new scheduled time");
+        }
+
+        // 24-hour extension cap per call
+        LocalDateTime currentExpiresAt = post.getExpiresAt() != null
+                ? post.getExpiresAt()
+                : post.getScheduledAt().plusHours(2);
+        if (newExpiresAt.isAfter(currentExpiresAt.plusHours(24))) {
+            throw new IllegalArgumentException(
+                    "Extension is capped at 24 hours beyond the current expiry time (" + currentExpiresAt + "). " +
+                    "Call extend again to extend further if needed.");
+        }
+
+        // Update the post
+        post.setScheduledAt(newScheduledAt);
+        post.setExpiresAt(newExpiresAt);
+        matchPostRepository.save(post);
+
+        // Update the companion Match so scheduledAt-based jobs stay correct
+        Match match = matchRepository.findById(post.getMatchId()).orElse(null);
+        if (match != null) {
+            match.setScheduledAt(newScheduledAt);
+            matchRepository.save(match);
+
+            // Notify all confirmed players
+            List<MatchPlayer> players = matchPlayerRepository.findByMatchId(match.getId());
+            String formattedTime = newScheduledAt.format(
+                    DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm"));
+            for (MatchPlayer mp : players) {
+                notificationService.create(
+                        mp.getUserId(),
+                        NotificationType.MATCH_TIME_EXTENDED,
+                        postId,
+                        match.getId(),
+                        "The match \"" + match.getMatchName() + "\" has been rescheduled to " + formattedTime + ".");
+            }
+        }
+    }
 }

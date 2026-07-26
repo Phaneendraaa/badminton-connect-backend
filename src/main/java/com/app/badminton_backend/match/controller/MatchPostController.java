@@ -13,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -97,5 +99,29 @@ public class MatchPostController {
     @GetMapping("/mine")
     public ResponseEntity<List<MyPostDtoResponse>> getMyPosts() {
         return ResponseEntity.ok(matchPostService.getMyPosts());
+    }
+
+    /**
+     * Organizer extends the scheduled time of a FULL (confirmed) post.
+     *
+     * Body: { "newScheduledAt": "2026-08-01T18:00:00", "newExpiresAt": "2026-08-01T20:00:00" }
+     *
+     * Validation (enforced in service):
+     *  - Caller must be the post creator.
+     *  - Post must be FULL.
+     *  - newScheduledAt must be in the future.
+     *  - newExpiresAt must be after newScheduledAt.
+     *  - newExpiresAt ≤ currentExpiresAt + 24h (extension cap per call).
+     */
+    @PostMapping("/{id}/extend")
+    public ResponseEntity<?> extendPost(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        LocalDateTime newScheduledAt = LocalDateTime.parse(
+                body.get("newScheduledAt"), DateTimeFormatter.ISO_DATE_TIME);
+        LocalDateTime newExpiresAt = LocalDateTime.parse(
+                body.get("newExpiresAt"), DateTimeFormatter.ISO_DATE_TIME);
+        matchPostService.extendPost(id, newScheduledAt, newExpiresAt);
+        return ResponseEntity.ok(Map.of("message", "Play time extended successfully"));
     }
 }

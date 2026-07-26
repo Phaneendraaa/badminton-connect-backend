@@ -164,6 +164,8 @@ public class NotificationService {
             case POST_CANCELLED        -> "Match Cancelled";
             case MATCH_STARTING_SOON   -> "Match Starting Soon ⏰";
             case NEW_CHAT_MESSAGE      -> "New Message 💬";
+            case PLAYER_REMOVED        -> "Removed from Match ⚠️";
+            case MATCH_TIME_EXTENDED   -> "Match Rescheduled 📅";
         };
     }
 

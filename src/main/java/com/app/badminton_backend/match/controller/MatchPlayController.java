@@ -20,7 +20,6 @@ public class MatchPlayController {
 
     /**
      * Returns the full match state: metadata, sets, and player list.
-     * Returns a typed MatchDetailDtoResponse (replaces the previous Map).
      */
     @GetMapping("/{matchId}")
     public ResponseEntity<MatchDetailDtoResponse> getMatchData(@PathVariable UUID matchId) {
@@ -30,8 +29,6 @@ public class MatchPlayController {
     /**
      * Organizer assigns players to Team A / Team B (and optionally renames the teams).
      * Must be called before startMatch(). Match must be in CREATED status.
-     *
-     * Body: { teamAUserIds: [...], teamBUserIds: [...], teamAName?: string, teamBName?: string }
      */
     @PostMapping("/{matchId}/assign-teams")
     public ResponseEntity<?> assignTeams(
@@ -67,5 +64,27 @@ public class MatchPlayController {
     public ResponseEntity<?> deleteMatchSet(@PathVariable UUID matchId, @PathVariable Integer setNumber) {
         matchPlayService.deleteMatchSet(matchId, setNumber);
         return ResponseEntity.ok(Map.of("message", "Set deleted successfully"));
+    }
+
+    /**
+     * Organizer removes a confirmed player from the match.
+     *
+     * Body: { "userId": "<UUID>", "reason": "optional string" }
+     *
+     * Side effects (enforced in service):
+     *  - MatchPlayer row deleted; audit log written.
+     *  - Slot freed; post reopened to OPEN if it was FULL.
+     *  - PLAYER_REMOVED in-app notification sent to the removed player.
+     *  - STOMP broadcast on /topic/match/{matchId} so the removed player's
+     *    client can navigate away immediately.
+     */
+    @PostMapping("/{matchId}/remove-player")
+    public ResponseEntity<?> removePlayer(
+            @PathVariable UUID matchId,
+            @RequestBody Map<String, String> body) {
+        UUID targetUserId = UUID.fromString(body.get("userId"));
+        String reason = body.getOrDefault("reason", null);
+        matchPlayService.removePlayer(matchId, targetUserId, reason);
+        return ResponseEntity.ok(Map.of("message", "Player removed successfully"));
     }
 }

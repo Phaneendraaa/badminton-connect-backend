@@ -3,17 +3,26 @@ package com.app.badminton_backend.match.service;
 import com.app.badminton_backend.auth.service.CurrentUserService;
 import com.app.badminton_backend.elo.entity.EloPoints;
 import com.app.badminton_backend.elo.service.EloService;
+import com.app.badminton_backend.exceptions.PostNotFoundException;
 import com.app.badminton_backend.exceptions.UnauthorizedActionException;
 import com.app.badminton_backend.match.dtos.AssignTeamsDtoRequest;
 import com.app.badminton_backend.match.dtos.MatchDetailDtoResponse;
 import com.app.badminton_backend.match.dtos.MatchPlayerDto;
 import com.app.badminton_backend.match.entity.Match;
 import com.app.badminton_backend.match.entity.MatchPlayer;
+import com.app.badminton_backend.match.entity.MatchPlayerRemovalLog;
+import com.app.badminton_backend.match.entity.MatchPost;
 import com.app.badminton_backend.match.entity.MatchSet;
+import com.app.badminton_backend.match.enums.JoinRequestStatus;
 import com.app.badminton_backend.match.enums.MatchStatus;
 import com.app.badminton_backend.match.enums.MatchType;
+import com.app.badminton_backend.match.enums.NotificationType;
+import com.app.badminton_backend.match.enums.PostStatus;
 import com.app.badminton_backend.match.enums.Team;
+import com.app.badminton_backend.match.repository.MatchJoinRequestRepository;
+import com.app.badminton_backend.match.repository.MatchPlayerRemovalLogRepository;
 import com.app.badminton_backend.match.repository.MatchPlayerRepository;
+import com.app.badminton_backend.match.repository.MatchPostRepository;
 import com.app.badminton_backend.match.repository.MatchRepository;
 import com.app.badminton_backend.match.repository.MatchSetRepository;
 import com.app.badminton_backend.match.dtos.MatchSetDtoRequest;
@@ -39,11 +48,15 @@ import java.util.stream.Collectors;
 public class MatchPlayService {
     private final CurrentUserService currentUserService;
     private final MatchRepository matchRepository;
+    private final MatchPostRepository matchPostRepository;
     private final MatchSetRepository matchSetRepository;
     private final MatchPlayerRepository matchPlayerRepository;
+    private final MatchPlayerRemovalLogRepository removalLogRepository;
+    private final MatchJoinRequestRepository matchJoinRequestRepository;
     private final EloService eloService;
     private final ProfileRepository profileRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final NotificationService notificationService;
 
     // ── STOMP topic prefix for live match-play state ──────────────────────────
     private static final String MATCH_PLAY_TOPIC = "/topic/match-play/";
@@ -174,8 +187,112 @@ public class MatchPlayService {
     }
 
     // -------------------------------------------------------------------------
-    // ADD / UPDATE / DELETE SET SCORES
+    // REMOVE PLAYER (organizer-driven eviction)
     // -------------------------------------------------------------------------
+
+    /**
+     * Organizer removes a confirmed player from the match before it starts.
+     *
+     * Effects:
+     *  1. MatchPlayer row for that user is deleted.
+     *  2. An audit log entry is written to match_player_removal_log.
+     *  3. Match.slotsJoined is decremented (floor 1 — organizer always counts).
+     *  4. If Match.status was CREATED (full), it reverts to PENDING.
+     *  5. If MatchPost.status was FULL, it reverts to OPEN (slot is available again).
+     *  6. The removed player's MatchJoinRequest is marked REJECTED.
+     *  7. An in-app PLAYER_REMOVED notification is sent to the removed player.
+     *  8. A STOMP broadcast is sent so all connected clients (including the removed
+     *     player's device) learn of the change immediately — the removed player's
+     *     client should react by leaving the chat/match-play screens.
+     *
+     * Guards:
+     *  - Only the match organizer may call this.
+     *  - Only allowed while match status is CREATED or PENDING (not PLAYING/COMPLETED).
+     *  - Cannot remove the organizer themselves.
+     */
+    @Transactional
+    public void removePlayer(UUID matchId, UUID targetUserId, String reason) {
+        UUID callerId = currentUserService.getCurrentUser().getId();
+
+        Match match = matchRepository.findById(matchId)
+                .orElseThrow(() -> new PostNotFoundException("Match not found: " + matchId));
+
+        // Organizer-only guard
+        if (!match.getOrganizerId().equals(callerId)) {
+            throw new UnauthorizedActionException("Only the match organizer can remove players");
+        }
+
+        // Cannot remove self (organizer)
+        if (callerId.equals(targetUserId)) {
+            throw new IllegalArgumentException("The organizer cannot remove themselves from the match");
+        }
+
+        // Status guard — no removal during or after play
+        if (match.getStatus() == MatchStatus.PLAYING || match.getStatus() == MatchStatus.COMPLETED) {
+            throw new IllegalStateException(
+                    "Cannot remove a player once the match is " + match.getStatus());
+        }
+
+        // Find and remove the MatchPlayer row
+        List<MatchPlayer> toRemove = matchPlayerRepository.findByMatchId(matchId).stream()
+                .filter(mp -> mp.getUserId().equals(targetUserId))
+                .collect(Collectors.toList());
+
+        if (toRemove.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "User " + targetUserId + " is not a confirmed player in this match");
+        }
+        matchPlayerRepository.deleteAll(toRemove);
+
+        // Write audit log
+        removalLogRepository.save(MatchPlayerRemovalLog.builder()
+                .matchId(matchId)
+                .removedUserId(targetUserId)
+                .removedByUserId(callerId)
+                .reason(reason)
+                .build());
+
+        // Decrement slotsJoined (floor at 1 — organizer always occupies a slot)
+        match.setSlotsJoined(Math.max(1, match.getSlotsJoined() - 1));
+        if (match.getStatus() == MatchStatus.CREATED) {
+            match.setStatus(MatchStatus.PENDING);
+        }
+        matchRepository.save(match);
+
+        // Re-open the post if it was FULL
+        if (match.getPostId() != null) {
+            matchPostRepository.findById(match.getPostId()).ifPresent(post -> {
+                if (post.getStatus() == PostStatus.FULL) {
+                    post.setStatus(PostStatus.OPEN);
+                    matchPostRepository.save(post);
+                }
+            });
+
+            // Mark the removed player's join request as REJECTED so they must re-request
+            matchJoinRequestRepository
+                    .findByPostIdAndUserId(match.getPostId(), targetUserId)
+                    .ifPresent(req -> {
+                        req.setStatus(JoinRequestStatus.REJECTED);
+                        req.setRespondedAt(LocalDateTime.now());
+                        matchJoinRequestRepository.save(req);
+                    });
+        }
+
+        // Notify the removed player
+        notificationService.create(
+                targetUserId,
+                NotificationType.PLAYER_REMOVED,
+                match.getPostId(),
+                matchId,
+                "You have been removed from the match \"" + match.getMatchName() + "\" by the organizer.");
+
+        // Broadcast STOMP event — type PLAYER_REMOVED so clients can react
+        // (the removed player's client should navigate away from match-related screens)
+        broadcastSystemEvent(matchId, "PLAYER_REMOVED", targetUserId.toString());
+
+        // Also broadcast updated match-play state
+        broadcastState(matchId);
+    }
 
     public void addMatchSet(UUID matchId, MatchSetDtoRequest request) {
         Match match = matchRepository.findById(matchId).orElseThrow();
@@ -383,6 +500,24 @@ public class MatchPlayService {
             // roll back the transaction over a failed broadcast.
             log.warn("[MatchPlay] Failed to broadcast state for match {}: {}",
                     matchId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Broadcasts a lightweight system event to /topic/match/{matchId}.
+     * Used for events like PLAYER_REMOVED where the client needs to act
+     * immediately (navigate away) before a full state refresh is useful.
+     *
+     * Payload structure: { "eventType": "...", "payload": "..." }
+     */
+    private void broadcastSystemEvent(UUID matchId, String eventType, String payload) {
+        try {
+            messagingTemplate.convertAndSend(
+                    "/topic/match/" + matchId,
+                    java.util.Map.of("eventType", eventType, "payload", payload));
+        } catch (Exception ex) {
+            log.warn("[MatchPlay] Failed to broadcast system event {} for match {}: {}",
+                    eventType, matchId, ex.getMessage());
         }
     }
 }
